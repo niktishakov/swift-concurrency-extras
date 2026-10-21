@@ -19,7 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ matrix.code == 'old' && '8a4260f' || github.sha }}
+          ref: ${{ matrix.code == 'old' && '8a4260f7373493435bd21194585c95b72bfdd401' || github.sha }}
           fetch-depth: 0
       - uses: compnerd/gha-setup-swift@main
         with:
@@ -44,7 +44,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ matrix.code == 'old' && '8a4260f' || github.sha }}
+          ref: ${{ matrix.code == 'old' && '8a4260f7373493435bd21194585c95b72bfdd401' || github.sha }}
           fetch-depth: 0
       - name: Install Swift SDK for WebAssembly
         run: swift sdk install https://download.swift.org/swift-6.4.1-release/wasm-sdk/swift-6.4.1-RELEASE/swift-6.4.1-RELEASE_wasm.artifactbundle.tar.gz --checksum 783e6128d174d9f975b4eda68be02a5960681b723ef372e6876a7c2543a365d8
