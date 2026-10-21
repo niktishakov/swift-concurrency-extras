@@ -108,3 +108,20 @@ jobs:
           bin=$(swift build --swift-sdk x86_64-swift-linux-musl --show-bin-path)/Probe
           "$bin"
           (readelf -d "$bin" | grep NEEDED) || echo "no NEEDED: static executable"
+
+  linux-older:
+    name: Linux (Swift ${{ matrix.swift }}, ${{ matrix.code }})
+    runs-on: ubuntu-latest
+    container: swift:${{ matrix.swift }}
+    strategy:
+      fail-fast: false
+      matrix:
+        swift: ['6.0', '6.1', '6.2']
+        code: ['old', 'new']
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ matrix.code == 'old' && '8a4260f7373493435bd21194585c95b72bfdd401' || github.sha }}
+          fetch-depth: 0
+      - name: Run tests
+        run: swift test
