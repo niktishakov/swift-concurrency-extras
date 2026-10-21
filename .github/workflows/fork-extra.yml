@@ -76,5 +76,39 @@ jobs:
           fetch-depth: 0
       - name: Install static Linux SDK
         run: swift sdk install https://download.swift.org/swift-6.4.1-release/static-sdk/swift-6.4.1-RELEASE/swift-6.4.1-RELEASE_static-linux-0.1.0.artifactbundle.tar.gz --checksum cef5592d7430ed3c5ae1ddda479849c6f5252bd94a5723db1559f984caf38a7c
-      - name: Run tests
-        run: swift test --swift-sdk x86_64-swift-linux-musl
+      - name: Build library
+        run: swift build --swift-sdk x86_64-swift-linux-musl --target ConcurrencyExtras
+      - name: Run a static probe (re-entrancy and 4 threads)
+        run: |
+          mkdir -p /tmp/probe/Sources/Probe
+          cat > /tmp/probe/Package.swift <<'PKG'
+          // swift-tools-version: 6.0
+          import PackageDescription
+          let package = Package(
+            name: "Probe",
+            dependencies: [.package(path: "PKGDIR")],
+            targets: [.executableTarget(name: "Probe", dependencies: [.product(name: "ConcurrencyExtras", package: "swift-concurrency-extras")])]
+          )
+          PKG
+          sed -i "s|PKGDIR|$PWD|" /tmp/probe/Package.swift
+          cat > /tmp/probe/Sources/Probe/main.swift <<'SRC'
+          import ConcurrencyExtras
+          import Musl
+          let x = LockIsolated(0)
+          x.setValue(x.value + 1)
+          x.withValue { _ in _ = x.value }
+          var threads: [pthread_t] = []
+          for _ in 0..<4 {
+            var t = pthread_t(bitPattern: 0)
+            pthread_create(&t, nil, { _ in
+              for _ in 0..<100_000 { x.withValue { $0 += 1 } }
+              return nil
+            }, nil)
+            threads.append(t)
+          }
+          for t in threads { pthread_join(t, nil) }
+          precondition(x.value == 400_001, "got \(x.value)")
+          print("probe ok: \(x.value)")
+          SRC
+          cd /tmp/probe && swift build --swift-sdk x86_64-swift-linux-musl && ./.build/x86_64-swift-linux-musl/debug/Probe
+          file ./.build/x86_64-swift-linux-musl/debug/Probe || true
