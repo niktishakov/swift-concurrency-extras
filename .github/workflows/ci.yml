@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - fork-ci-foundation-free
   pull_request:
     branches:
       - '*'
