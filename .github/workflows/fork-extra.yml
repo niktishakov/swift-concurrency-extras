@@ -58,6 +58,5 @@ jobs:
           curl -fsSL https://github.com/bytecodealliance/wasmtime/releases/download/v50.0.0/wasmtime-v50.0.0-x86_64-linux.tar.xz | tar -xJ
       - name: Run tests
         run: |
-          find .build -name '*PackageTests*' -maxdepth 4
-          t=$(find .build -name 'swift-concurrency-extrasPackageTests.*' -type f -maxdepth 4 | head -1)
-          ./wasmtime-v50.0.0-x86_64-linux/wasmtime --dir . "$t"
+          find .build -name '*.xctest' -o -name '*-test-runner*' -o -name '*.wasm' | grep -v '/checkouts/' | head
+          swift test --swift-sdk swift-6.4.1-RELEASE_wasm -Xlinker -z -Xlinker stack-size=$((1024 * 1024))
