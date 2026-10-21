@@ -27,6 +27,19 @@ jobs:
           swift-build: ${{ matrix.swift }}-RELEASE
       - name: Run tests
         run: swift test
+      - name: Environment variable probe
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/envprobe/Sources/EnvProbe"
+          root=$(cygpath -m "$(pwd)" 2>/dev/null || pwd)
+          printf '%s\n' '// swift-tools-version: 6.0' 'import PackageDescription' 'let package = Package(name: "EnvProbe", dependencies: [.package(path: "ROOT")], targets: [.executableTarget(name: "EnvProbe", dependencies: [.product(name: "ConcurrencyExtras", package: "swift-concurrency-extras")])])' > "$RUNNER_TEMP/envprobe/Package.swift"
+          sed -i.bak "s|ROOT|${root//\\//}|" "$RUNNER_TEMP/envprobe/Package.swift"
+          printf '%s\n' 'import ConcurrencyExtras' 'print("megaYieldCount=\(_defaultMegaYieldCount)")' > "$RUNNER_TEMP/envprobe/Sources/EnvProbe/main.swift"
+          cd "$RUNNER_TEMP/envprobe" && swift build
+          bin=$(swift build --show-bin-path)/EnvProbe
+          "$bin" | tee out-default.txt
+          TASK_MEGA_YIELD_COUNT=7 "$bin" | tee out-7.txt
+          grep -q 'megaYieldCount=20' out-default.txt && grep -q 'megaYieldCount=7' out-7.txt
       - name: Linked DLLs
         shell: bash
         run: |
@@ -125,3 +138,16 @@ jobs:
           fetch-depth: 0
       - name: Run tests
         run: swift test
+      - name: Environment variable probe
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/envprobe/Sources/EnvProbe"
+          root=$(cygpath -m "$(pwd)" 2>/dev/null || pwd)
+          printf '%s\n' '// swift-tools-version: 6.0' 'import PackageDescription' 'let package = Package(name: "EnvProbe", dependencies: [.package(path: "ROOT")], targets: [.executableTarget(name: "EnvProbe", dependencies: [.product(name: "ConcurrencyExtras", package: "swift-concurrency-extras")])])' > "$RUNNER_TEMP/envprobe/Package.swift"
+          sed -i.bak "s|ROOT|${root//\\//}|" "$RUNNER_TEMP/envprobe/Package.swift"
+          printf '%s\n' 'import ConcurrencyExtras' 'print("megaYieldCount=\(_defaultMegaYieldCount)")' > "$RUNNER_TEMP/envprobe/Sources/EnvProbe/main.swift"
+          cd "$RUNNER_TEMP/envprobe" && swift build
+          bin=$(swift build --show-bin-path)/EnvProbe
+          "$bin" | tee out-default.txt
+          TASK_MEGA_YIELD_COUNT=7 "$bin" | tee out-7.txt
+          grep -q 'megaYieldCount=20' out-default.txt && grep -q 'megaYieldCount=7' out-7.txt
