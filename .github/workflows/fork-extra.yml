@@ -55,6 +55,6 @@ jobs:
       - name: Install wasmtime
         run: |
           apt-get update -qq && apt-get install -y -qq xz-utils curl >/dev/null
-          curl -fsSL https://github.com/bytecodealliance/wasmtime/releases/download/v38.0.0/wasmtime-v38.0.0-x86_64-linux.tar.xz | tar -xJ
+          curl -fsSL https://github.com/bytecodealliance/wasmtime/releases/download/v50.0.0/wasmtime-v50.0.0-x86_64-linux.tar.xz | tar -xJ
       - name: Run tests
-        run: ./wasmtime-v38.0.0-x86_64-linux/wasmtime --dir . .build/debug/swift-concurrency-extrasPackageTests.wasm
+        run: ./wasmtime-v50.0.0-x86_64-linux/wasmtime --dir . .build/debug/swift-concurrency-extrasPackageTests.wasm
