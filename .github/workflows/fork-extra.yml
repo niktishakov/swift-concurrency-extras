@@ -1,0 +1,60 @@
+# Fork test only: Windows and Wasm, old (upstream 8a4260f) vs new.
+name: Fork extra platforms
+
+on:
+  push:
+    branches:
+      - fork-ci-foundation-free
+  workflow_dispatch:
+
+jobs:
+  windows:
+    name: Windows (Swift ${{ matrix.swift }}, ${{ matrix.code }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        swift: ['6.3', '6.4.1']
+        code: ['old', 'new']
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ matrix.code == 'old' && '8a4260f' || github.sha }}
+          fetch-depth: 0
+      - uses: compnerd/gha-setup-swift@main
+        with:
+          swift-version: swift-${{ matrix.swift }}-release
+          swift-build: ${{ matrix.swift }}-RELEASE
+      - name: Run tests
+        run: swift test
+      - name: Linked DLLs
+        shell: bash
+        run: |
+          swift build -c release --product ConcurrencyExtras 2>/dev/null || true
+          find .build -name '*.exe' -path '*debug*' | head -1 | xargs -r objdump -p | grep 'DLL Name' || true
+
+  wasm:
+    name: Wasm (Swift 6.4.1, ${{ matrix.code }})
+    runs-on: ubuntu-latest
+    container: swift:6.4.1-noble
+    strategy:
+      fail-fast: false
+      matrix:
+        code: ['old', 'new']
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ matrix.code == 'old' && '8a4260f' || github.sha }}
+          fetch-depth: 0
+      - name: Install Swift SDK for WebAssembly
+        run: swift sdk install https://download.swift.org/swift-6.4.1-release/wasm-sdk/swift-6.4.1-RELEASE/swift-6.4.1-RELEASE_wasm.artifactbundle.tar.gz --checksum 783e6128d174d9f975b4eda68be02a5960681b723ef372e6876a7c2543a365d8
+      - name: Build library
+        run: swift build --swift-sdk swift-6.4.1-RELEASE_wasm --target ConcurrencyExtras
+      - name: Build tests
+        run: swift build --swift-sdk swift-6.4.1-RELEASE_wasm --build-tests -Xlinker -z -Xlinker stack-size=$((1024 * 1024))
+      - name: Install wasmtime
+        run: |
+          apt-get update -qq && apt-get install -y -qq xz-utils curl >/dev/null
+          curl -fsSL https://github.com/bytecodealliance/wasmtime/releases/download/v38.0.0/wasmtime-v38.0.0-x86_64-linux.tar.xz | tar -xJ
+      - name: Run tests
+        run: ./wasmtime-v38.0.0-x86_64-linux/wasmtime --dir . .build/debug/swift-concurrency-extrasPackageTests.wasm
