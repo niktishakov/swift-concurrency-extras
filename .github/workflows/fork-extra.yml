@@ -93,20 +93,14 @@ jobs:
           sed -i "s|PKGDIR|$PWD|" /tmp/probe/Package.swift
           cat > /tmp/probe/Sources/Probe/main.swift <<'SRC'
           import ConcurrencyExtras
-          import Musl
           let x = LockIsolated(0)
           x.setValue(x.value + 1)
           x.withValue { _ in _ = x.value }
-          var threads: [pthread_t] = []
-          for _ in 0..<4 {
-            var t = pthread_t(bitPattern: 0)
-            pthread_create(&t, nil, { _ in
-              for _ in 0..<100_000 { x.withValue { $0 += 1 } }
-              return nil
-            }, nil)
-            threads.append(t)
+          await withTaskGroup(of: Void.self) { group in
+            for _ in 0..<4 {
+              group.addTask { for _ in 0..<100_000 { x.withValue { $0 += 1 } } }
+            }
           }
-          for t in threads { pthread_join(t, nil) }
           precondition(x.value == 400_001, "got \(x.value)")
           print("probe ok: \(x.value)")
           SRC
