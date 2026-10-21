@@ -104,5 +104,7 @@ jobs:
           precondition(x.value == 400_001, "got \(x.value)")
           print("probe ok: \(x.value)")
           SRC
-          cd /tmp/probe && swift build --swift-sdk x86_64-swift-linux-musl && ./.build/x86_64-swift-linux-musl/debug/Probe
-          file ./.build/x86_64-swift-linux-musl/debug/Probe || true
+          cd /tmp/probe && swift build --swift-sdk x86_64-swift-linux-musl
+          bin=$(swift build --swift-sdk x86_64-swift-linux-musl --show-bin-path)/Probe
+          "$bin"
+          (readelf -d "$bin" | grep NEEDED) || echo "no NEEDED: static executable"
