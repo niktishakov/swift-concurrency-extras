@@ -1,32 +1,37 @@
 diff --git a/Sources/Dependencies/DependencyValues.swift b/Sources/Dependencies/DependencyValues.swift
-index bf6b553..c4a0e36 100644
+index bf6b553..d4c3f26 100644
 --- a/Sources/Dependencies/DependencyValues.swift
 +++ b/Sources/Dependencies/DependencyValues.swift
-@@ -1,4 +1,8 @@
+@@ -1,4 +1,13 @@
 -public import Foundation
 +#if canImport(Darwin) || os(WASI)
 +  public import Foundation
++
++  typealias PreparationID = Foundation.UUID
 +#else
 +  public import FoundationEssentials
++
++  // NB: WinSDK also has a `UUID` type.
++  typealias PreparationID = FoundationEssentials.UUID
 +#endif
  import IssueReporting
  
  #if os(Windows)
-@@ -124,7 +128,7 @@ public struct DependencyValues: Sendable {
+@@ -124,7 +133,7 @@ public struct DependencyValues: Sendable {
      @TaskLocal static var currentDependency = CurrentDependency()
      @TaskLocal static var isSetting = false
    #endif
 -  @TaskLocal static var preparationID: Foundation.UUID?
-+  @TaskLocal static var preparationID: UUID?
++  @TaskLocal static var preparationID: PreparationID?
    static var isPreparing: Bool {
      preparationID != nil
    }
-@@ -491,10 +495,10 @@ public final class CachedValues: @unchecked Sendable {
+@@ -491,10 +500,10 @@ public final class CachedValues: @unchecked Sendable {
  
    public struct CachedValue {
      let base: any Sendable
 -    let preparationID: Foundation.UUID?
-+    let preparationID: UUID?
++    let preparationID: PreparationID?
    }
  
 -  public let lock = NSRecursiveLock()

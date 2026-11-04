@@ -164,10 +164,10 @@ index f0d2c72..0671214 100644
  #endif
  
 diff --git a/Sources/IssueReporting/Internal/Warn.swift b/Sources/IssueReporting/Internal/Warn.swift
-index 5db6c65..149f573 100644
+index 5db6c65..f5151bd 100644
 --- a/Sources/IssueReporting/Internal/Warn.swift
 +++ b/Sources/IssueReporting/Internal/Warn.swift
-@@ -1,11 +1,15 @@
+@@ -1,14 +1,23 @@
 -#if os(Linux) || os(Android)
 -  @preconcurrency import Foundation
 -#else
@@ -190,6 +190,15 @@ index 5db6c65..149f573 100644
  #endif
  
  @usableFromInline
+ func printError(_ message: String) {
+-  fputs("\(message)\n", stderr)
++  #if os(Windows)
++    // NB: `stderr` is a C macro in the Windows CRT, so Swift can't see it.
++    fputs("\(message)\n", __acrt_iob_func(2))
++  #else
++    fputs("\(message)\n", stderr)
++  #endif
+ }
 diff --git a/Sources/IssueReporting/IsTesting.swift b/Sources/IssueReporting/IsTesting.swift
 index 47cdd1a..ab086ab 100644
 --- a/Sources/IssueReporting/IsTesting.swift

@@ -40,6 +40,10 @@ jobs:
           cd swift-dependencies
           # A fresh resolve: the committed Package.resolved pins an xctest-dynamic-overlay that declares IssueReporting itself.
           rm -f Package.resolved
+          # And the old name of swift-issue-reporting points at the new one, so the local copy replaces both.
+          mkdir -p .swiftpm/configuration ../probe/.swiftpm/configuration
+          echo '{"object":[{"mirror":"https://github.com/pointfreeco/swift-issue-reporting","original":"https://github.com/pointfreeco/xctest-dynamic-overlay"}],"version":1}' > .swiftpm/configuration/mirrors.json
+          cp .swiftpm/configuration/mirrors.json ../probe/.swiftpm/configuration/
           for f in Package.swift Package@swift-6.3.swift; do
             sed -i \
               -e 's#\.package(url: "https://github.com/pointfreeco/swift-concurrency-extras", from: "1.0.0")#.package(path: "../swift-concurrency-extras")#' \
