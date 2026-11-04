@@ -1,0 +1,106 @@
+# Fork test only: swift-issue-reporting and swift-dependencies on Windows with the patches in .github/ci-chain.
+# old = upstream commits as they are; new = the same commits plus the patches, on top of this branch's ConcurrencyExtras.
+name: Fork chain on Windows
+
+on:
+  push:
+    branches:
+      - fork-ci-chain
+  workflow_dispatch:
+
+jobs:
+  windows:
+    name: Windows (Swift ${{ matrix.swift }}, ${{ matrix.code }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        swift: ['6.3', '6.4.1']
+        code: ['old', 'new']
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: swift-concurrency-extras
+          fetch-depth: 0
+      - name: Check out the chain
+        run: |
+          cp -r swift-concurrency-extras/.github/ci-chain "$RUNNER_TEMP/ci-chain"
+          if [ "${{ matrix.code }}" = old ]; then git -C swift-concurrency-extras checkout -q 8a4260f7373493435bd21194585c95b72bfdd401; fi
+          git clone -q https://github.com/pointfreeco/swift-issue-reporting
+          git -C swift-issue-reporting checkout -q b23bb4493c439d3e05152bc167014235ba3d47fc
+          git clone -q https://github.com/pointfreeco/swift-dependencies
+          git -C swift-dependencies checkout -q b476cc5761057d8d857de063fe7ac8daecf5c06b
+          if [ "${{ matrix.code }}" = new ]; then
+            git -C swift-issue-reporting apply "$RUNNER_TEMP/ci-chain/issue-reporting.diff"
+            git -C swift-dependencies apply "$RUNNER_TEMP/ci-chain/dependencies.diff"
+          fi
+          cd swift-dependencies
+          for f in Package.swift Package@swift-6.3.swift; do
+            sed -i \
+              -e 's#\.package(url: "https://github.com/pointfreeco/swift-concurrency-extras", from: "1.0.0")#.package(path: "../swift-concurrency-extras")#' \
+              -e 's#\.package(url: "https://github.com/pointfreeco/swift-issue-reporting", from: "2.1.0")#.package(path: "../swift-issue-reporting")#' \
+              -e 's#\.package(url: "https://github.com/pointfreeco/xctest-dynamic-overlay", from: "1.13.0")#.package(path: "../swift-issue-reporting")#' \
+              -e 's#package: "xctest-dynamic-overlay"#package: "swift-issue-reporting"#' $f
+            grep -n 'package(path' $f
+          done
+          git -C ../swift-issue-reporting diff --stat | tail -1
+          git diff --stat | tail -1
+      - uses: compnerd/gha-setup-swift@main
+        with:
+          swift-version: swift-${{ matrix.swift }}-release
+          swift-build: ${{ matrix.swift }}-RELEASE
+      - name: IssueReporting tests
+        if: always()
+        working-directory: swift-issue-reporting
+        run: swift test
+      - name: Dependencies tests (default traits)
+        if: always()
+        working-directory: swift-dependencies
+        run: swift test 2>&1 | tee "$RUNNER_TEMP/deps-test.log"; exit ${PIPESTATUS[0]}
+      - name: Failing Dependencies tests
+        if: always()
+        run: grep -E "Test Case .* failed|✘|error:" "$RUNNER_TEMP/deps-test.log" | sort -u | head -80 || true
+      - name: Dependencies with all traits off
+        if: always()
+        working-directory: swift-dependencies
+        run: swift build --disable-default-traits --target Dependencies
+      - name: Probe app with all traits off, linked DLLs
+        if: always()
+        run: |
+          mkdir -p probe/Sources/Probe
+          cat > probe/Package.swift <<'PKG'
+          // swift-tools-version: 6.1
+          import PackageDescription
+          let package = Package(
+            name: "Probe",
+            dependencies: [.package(path: "../swift-dependencies", traits: [])],
+            targets: [.executableTarget(name: "Probe", dependencies: [.product(name: "Dependencies", package: "swift-dependencies")])]
+          )
+          PKG
+          cat > probe/Sources/Probe/main.swift <<'SRC'
+          import Dependencies
+          struct Greeter: DependencyKey, Sendable {
+            var greet: @Sendable (String) -> String
+            static let liveValue = Greeter { "Hello, \($0)" }
+          }
+          extension DependencyValues {
+            var greeter: Greeter {
+              get { self[Greeter.self] }
+              set { self[Greeter.self] = newValue }
+            }
+          }
+          struct Model {
+            @Dependency(\.greeter) var greeter
+            func run() -> String { greeter.greet("Windows") }
+          }
+          print(Model().run())
+          print(withDependencies { $0.greeter = Greeter { "Overridden \($0)" } } operation: { Model().run() })
+          SRC
+          cd probe
+          swift build -c release
+          bin=$(swift build -c release --show-bin-path)/Probe.exe
+          "$bin"
+          (llvm-objdump -p "$bin" || objdump -p "$bin") | grep 'DLL Name' | sort

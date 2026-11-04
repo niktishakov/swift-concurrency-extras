@@ -1,0 +1,219 @@
+diff --git a/Sources/IssueReporting/Internal/AppHostWarning.swift b/Sources/IssueReporting/Internal/AppHostWarning.swift
+index 4aa378d..8246626 100644
+--- a/Sources/IssueReporting/Internal/AppHostWarning.swift
++++ b/Sources/IssueReporting/Internal/AppHostWarning.swift
+@@ -1,4 +1,8 @@
+-import Foundation
++#if canImport(Darwin) || os(WASI)
++  import Foundation
++#else
++  import FoundationEssentials
++#endif
+ 
+ extension String? {
+   @usableFromInline
+@@ -15,7 +19,7 @@ extension String? {
+ extension String {
+   @usableFromInline
+   func withAppHostWarningIfNeeded() -> String {
+-    #if os(WASI)
++    #if !canImport(Darwin)
+       return self
+     #else
+       guard
+@@ -52,7 +56,7 @@ extension String {
+     #endif
+   }
+ 
+-  #if !os(WASI)
++  #if canImport(Darwin)
+     @usableFromInline
+     var isTestFrame: Bool {
+       guard let xcTestCase = NSClassFromString("XCTestCase")
+diff --git a/Sources/IssueReporting/Internal/FailureObserver.swift b/Sources/IssueReporting/Internal/FailureObserver.swift
+index eaa633d..a27ef8d 100644
+--- a/Sources/IssueReporting/Internal/FailureObserver.swift
++++ b/Sources/IssueReporting/Internal/FailureObserver.swift
+@@ -1,10 +1,13 @@
+-import Foundation
++#if canImport(Darwin) || os(WASI)
++  import Foundation
++#endif
++
+ 
+ @usableFromInline
+ final class FailureObserver: @unchecked Sendable {
+   @TaskLocal public static var current: FailureObserver?
+ 
+-  private let lock = NSRecursiveLock()
++  private let lock = _RecursiveLock()
+   private var count = 0
+ 
+   @usableFromInline
+diff --git a/Sources/IssueReporting/Internal/LockIsolated.swift b/Sources/IssueReporting/Internal/LockIsolated.swift
+index cd31da8..734d5bc 100644
+--- a/Sources/IssueReporting/Internal/LockIsolated.swift
++++ b/Sources/IssueReporting/Internal/LockIsolated.swift
+@@ -1,9 +1,12 @@
+-import Foundation
++#if canImport(Darwin) || os(WASI)
++  import Foundation
++#endif
++
+ 
+ @usableFromInline
+ final class LockIsolated<Value>: @unchecked Sendable {
+   private var _value: Value
+-  private let lock = NSLock()
++  private let lock = _Lock()
+   @usableFromInline
+   init(_ value: sending Value) {
+     self._value = value
+diff --git a/Sources/IssueReporting/Internal/Locking.swift b/Sources/IssueReporting/Internal/Locking.swift
+new file mode 100644
+index 0000000..5e84e0d
+--- /dev/null
++++ b/Sources/IssueReporting/Internal/Locking.swift
+@@ -0,0 +1,67 @@
++#if canImport(Darwin) || os(WASI)
++  import Foundation
++
++  typealias _Lock = NSLock
++  typealias _RecursiveLock = NSRecursiveLock
++
++#else
++  #if canImport(Glibc)
++    import Glibc
++  #elseif canImport(Musl)
++    import Musl
++  #elseif canImport(Android)
++    import Android
++  #elseif os(Windows)
++    import WinSDK
++  #endif
++  /// Used where `NSLock` is used on Darwin. A recursive lock also works as a plain one.
++  typealias _Lock = _RecursiveLock
++
++  /// A recursive lock, like `NSRecursiveLock`, that does not depend on Foundation.
++  final class _RecursiveLock: @unchecked Sendable {
++    #if os(Windows)
++      private let mutex = UnsafeMutablePointer<CRITICAL_SECTION>.allocate(capacity: 1)
++    #else
++      private let mutex = UnsafeMutablePointer<pthread_mutex_t>.allocate(capacity: 1)
++    #endif
++
++    init() {
++      #if os(Windows)
++        InitializeCriticalSection(self.mutex)
++      #else
++        var attributes = pthread_mutexattr_t()
++        pthread_mutexattr_init(&attributes)
++        pthread_mutexattr_settype(&attributes, Int32(PTHREAD_MUTEX_RECURSIVE))
++        pthread_mutex_init(self.mutex, &attributes)
++        pthread_mutexattr_destroy(&attributes)
++      #endif
++    }
++
++    deinit {
++      #if os(Windows)
++        DeleteCriticalSection(self.mutex)
++        self.mutex.deallocate()
++      #else
++        pthread_mutex_destroy(self.mutex)
++        self.mutex.deallocate()
++      #endif
++    }
++
++    func lock() {
++      #if os(Windows)
++        EnterCriticalSection(self.mutex)
++      #else
++        pthread_mutex_lock(self.mutex)
++      #endif
++    }
++
++    func unlock() {
++      #if os(Windows)
++        LeaveCriticalSection(self.mutex)
++      #else
++        pthread_mutex_unlock(self.mutex)
++      #endif
++    }
++
++  }
++#endif
+diff --git a/Sources/IssueReporting/Internal/SwiftTesting.swift b/Sources/IssueReporting/Internal/SwiftTesting.swift
+index f0d2c72..0671214 100644
+--- a/Sources/IssueReporting/Internal/SwiftTesting.swift
++++ b/Sources/IssueReporting/Internal/SwiftTesting.swift
+@@ -1,6 +1,13 @@
+-import Foundation
+-
+-#if canImport(Android)
++#if canImport(Darwin) || os(WASI)
++  import Foundation
++#else
++  import FoundationEssentials
++#endif
++#if canImport(Glibc)
++  import Glibc
++#elseif canImport(Musl)
++  import Musl
++#elseif canImport(Android)
+   import Android
+ #endif
+ 
+diff --git a/Sources/IssueReporting/Internal/Warn.swift b/Sources/IssueReporting/Internal/Warn.swift
+index 5db6c65..a2d67a7 100644
+--- a/Sources/IssueReporting/Internal/Warn.swift
++++ b/Sources/IssueReporting/Internal/Warn.swift
+@@ -1,10 +1,14 @@
+-#if os(Linux) || os(Android)
+-  @preconcurrency import Foundation
+-#else
++#if canImport(Darwin)
++  import Darwin
++#elseif os(WASI)
+   import Foundation
+-#endif
+-
+-#if canImport(WinSDK)
++#elseif canImport(Glibc)
++  @preconcurrency import Glibc
++#elseif canImport(Musl)
++  @preconcurrency import Musl
++#elseif canImport(Android)
++  @preconcurrency import Android
++#elseif os(Windows)
+   import WinSDK
+ #endif
+ 
+diff --git a/Sources/IssueReporting/IsTesting.swift b/Sources/IssueReporting/IsTesting.swift
+index 47cdd1a..ab086ab 100644
+--- a/Sources/IssueReporting/IsTesting.swift
++++ b/Sources/IssueReporting/IsTesting.swift
+@@ -1,7 +1,11 @@
+ #if os(WASI)
+   public let isTesting = false
+ #else
+-  import Foundation
++  #if canImport(Darwin)
++    import Foundation
++  #else
++    import FoundationEssentials
++  #endif
+ 
+   /// Whether or not the current process is running tests.
+   ///
+diff --git a/Sources/IssueReporting/IssueReporters/DefaultReporter.swift b/Sources/IssueReporting/IssueReporters/DefaultReporter.swift
+index 31d797a..40a8354 100644
+--- a/Sources/IssueReporting/IssueReporters/DefaultReporter.swift
++++ b/Sources/IssueReporting/IssueReporters/DefaultReporter.swift
+@@ -1,4 +1,6 @@
+-public import Foundation
++#if canImport(Darwin) || os(WASI)
++  public import Foundation
++#endif
+ 
+ #if canImport(os)
+   public import os

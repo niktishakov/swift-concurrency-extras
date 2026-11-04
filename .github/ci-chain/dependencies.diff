@@ -1,0 +1,188 @@
+diff --git a/Sources/Dependencies/DependencyValues.swift b/Sources/Dependencies/DependencyValues.swift
+index bf6b553..c4a0e36 100644
+--- a/Sources/Dependencies/DependencyValues.swift
++++ b/Sources/Dependencies/DependencyValues.swift
+@@ -1,4 +1,8 @@
+-public import Foundation
++#if canImport(Darwin) || os(WASI)
++  public import Foundation
++#else
++  public import FoundationEssentials
++#endif
+ import IssueReporting
+ 
+ #if os(Windows)
+@@ -124,7 +128,7 @@ public struct DependencyValues: Sendable {
+     @TaskLocal static var currentDependency = CurrentDependency()
+     @TaskLocal static var isSetting = false
+   #endif
+-  @TaskLocal static var preparationID: Foundation.UUID?
++  @TaskLocal static var preparationID: UUID?
+   static var isPreparing: Bool {
+     preparationID != nil
+   }
+@@ -491,10 +495,10 @@ public final class CachedValues: @unchecked Sendable {
+ 
+   public struct CachedValue {
+     let base: any Sendable
+-    let preparationID: Foundation.UUID?
++    let preparationID: UUID?
+   }
+ 
+-  public let lock = NSRecursiveLock()
++  public let lock = _RecursiveLock()
+   public var cached = [CacheKey: CachedValue]()
+ 
+   public func resetCache() {
+diff --git a/Sources/Dependencies/DependencyValues/WithRandomNumberGenerator.swift b/Sources/Dependencies/DependencyValues/WithRandomNumberGenerator.swift
+index 225b0e4..a2ce633 100644
+--- a/Sources/Dependencies/DependencyValues/WithRandomNumberGenerator.swift
++++ b/Sources/Dependencies/DependencyValues/WithRandomNumberGenerator.swift
+@@ -1,5 +1,4 @@
+ import ConcurrencyExtras
+-import Foundation
+ 
+ extension DependencyValues {
+   /// A dependency that yields a random number generator to a closure.
+diff --git a/Sources/Dependencies/Internal/AppEntryPoint.swift b/Sources/Dependencies/Internal/AppEntryPoint.swift
+index 7662227..5401a46 100644
+--- a/Sources/Dependencies/Internal/AppEntryPoint.swift
++++ b/Sources/Dependencies/Internal/AppEntryPoint.swift
+@@ -1,6 +1,6 @@
+-import Foundation
+-
+ #if canImport(SwiftUI)
++  import Foundation
++
+   extension Thread {
+     static var isPreviewAppEntryPoint: Bool {
+       guard ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
+diff --git a/Sources/Dependencies/Internal/Locking.swift b/Sources/Dependencies/Internal/Locking.swift
+new file mode 100644
+index 0000000..e81a931
+--- /dev/null
++++ b/Sources/Dependencies/Internal/Locking.swift
+@@ -0,0 +1,63 @@
++#if canImport(Darwin) || os(WASI)
++  public import Foundation
++
++  @_spi(Internals)
++  public typealias _RecursiveLock = NSRecursiveLock
++#else
++  #if canImport(Glibc)
++    import Glibc
++  #elseif canImport(Musl)
++    import Musl
++  #elseif canImport(Android)
++    import Android
++  #elseif os(Windows)
++    import WinSDK
++  #endif
++
++  /// A recursive lock, like `NSRecursiveLock`, that does not depend on Foundation.
++  @_spi(Internals)
++  public final class _RecursiveLock: @unchecked Sendable {
++    #if os(Windows)
++      private let mutex = UnsafeMutablePointer<CRITICAL_SECTION>.allocate(capacity: 1)
++    #else
++      private let mutex = UnsafeMutablePointer<pthread_mutex_t>.allocate(capacity: 1)
++    #endif
++
++    init() {
++      #if os(Windows)
++        InitializeCriticalSection(self.mutex)
++      #else
++        var attributes = pthread_mutexattr_t()
++        pthread_mutexattr_init(&attributes)
++        pthread_mutexattr_settype(&attributes, Int32(PTHREAD_MUTEX_RECURSIVE))
++        pthread_mutex_init(self.mutex, &attributes)
++        pthread_mutexattr_destroy(&attributes)
++      #endif
++    }
++
++    deinit {
++      #if os(Windows)
++        DeleteCriticalSection(self.mutex)
++      #else
++        pthread_mutex_destroy(self.mutex)
++      #endif
++      self.mutex.deallocate()
++    }
++
++    public func lock() {
++      #if os(Windows)
++        EnterCriticalSection(self.mutex)
++      #else
++        pthread_mutex_lock(self.mutex)
++      #endif
++    }
++
++    public func unlock() {
++      #if os(Windows)
++        LeaveCriticalSection(self.mutex)
++      #else
++        pthread_mutex_unlock(self.mutex)
++      #endif
++    }
++  }
++#endif
+diff --git a/Sources/Dependencies/Internal/TypeName.swift b/Sources/Dependencies/Internal/TypeName.swift
+index 2a1dc7d..5d60524 100644
+--- a/Sources/Dependencies/Internal/TypeName.swift
++++ b/Sources/Dependencies/Internal/TypeName.swift
+@@ -1,17 +1,30 @@
+-import Foundation
+-
+ @usableFromInline
+ func typeName(_ type: Any.Type) -> String {
+   var name = _typeName(type, qualified: true)
+   if let index = name.firstIndex(of: ".") {
+     name.removeSubrange(...index)
+   }
+-  let sanitizedName =
+-    name
+-    .replacingOccurrences(
+-      of: #"\(unknown context at \$[[:xdigit:]]+\)\."#,
+-      with: "",
+-      options: .regularExpression
+-    )
+-  return sanitizedName
++  return name.removingUnknownContexts()
++}
++
++extension String {
++  /// Removes every `(unknown context at $<hex>).` from a type name.
++  fileprivate func removingUnknownContexts() -> String {
++    let prefix = "(unknown context at $"
++    var result = ""
++    var rest = self[...]
++    while !rest.isEmpty {
++      if rest.hasPrefix(prefix) {
++        let afterPrefix = rest.dropFirst(prefix.count)
++        let hex = afterPrefix.prefix(while: \.isHexDigit)
++        let afterHex = afterPrefix[hex.endIndex...]
++        if !hex.isEmpty, afterHex.hasPrefix(").") {
++          rest = afterHex.dropFirst(2)
++          continue
++        }
++      }
++      result.append(rest.removeFirst())
++    }
++    return result
++  }
+ }
+diff --git a/Sources/Dependencies/WithDependencies.swift b/Sources/Dependencies/WithDependencies.swift
+index 2787951..131e907 100644
+--- a/Sources/Dependencies/WithDependencies.swift
++++ b/Sources/Dependencies/WithDependencies.swift
+@@ -1,5 +1,9 @@
+ import ConcurrencyExtras
+-import Foundation
++#if canImport(Darwin) || os(WASI)
++  import Foundation
++#else
++  import FoundationEssentials
++#endif
+ import IssueReporting
+ 
+ /// Prepares global dependencies for the lifetime of your application.
