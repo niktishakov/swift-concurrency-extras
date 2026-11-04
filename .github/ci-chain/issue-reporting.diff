@@ -164,10 +164,10 @@ index f0d2c72..0671214 100644
  #endif
  
 diff --git a/Sources/IssueReporting/Internal/Warn.swift b/Sources/IssueReporting/Internal/Warn.swift
-index 5db6c65..a2d67a7 100644
+index 5db6c65..149f573 100644
 --- a/Sources/IssueReporting/Internal/Warn.swift
 +++ b/Sources/IssueReporting/Internal/Warn.swift
-@@ -1,10 +1,14 @@
+@@ -1,11 +1,15 @@
 -#if os(Linux) || os(Android)
 -  @preconcurrency import Foundation
 -#else
@@ -178,6 +178,7 @@ index 5db6c65..a2d67a7 100644
 -#endif
 -
 -#if canImport(WinSDK)
+-  import WinSDK
 +#elseif canImport(Glibc)
 +  @preconcurrency import Glibc
 +#elseif canImport(Musl)
@@ -185,9 +186,10 @@ index 5db6c65..a2d67a7 100644
 +#elseif canImport(Android)
 +  @preconcurrency import Android
 +#elseif os(Windows)
-   import WinSDK
++  import ucrt
  #endif
  
+ @usableFromInline
 diff --git a/Sources/IssueReporting/IsTesting.swift b/Sources/IssueReporting/IsTesting.swift
 index 47cdd1a..ab086ab 100644
 --- a/Sources/IssueReporting/IsTesting.swift

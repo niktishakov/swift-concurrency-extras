@@ -38,6 +38,8 @@ jobs:
             git -C swift-dependencies apply "$RUNNER_TEMP/ci-chain/dependencies.diff"
           fi
           cd swift-dependencies
+          # A fresh resolve: the committed Package.resolved pins an xctest-dynamic-overlay that declares IssueReporting itself.
+          rm -f Package.resolved
           for f in Package.swift Package@swift-6.3.swift; do
             sed -i \
               -e 's#\.package(url: "https://github.com/pointfreeco/swift-concurrency-extras", from: "1.0.0")#.package(path: "../swift-concurrency-extras")#' \
