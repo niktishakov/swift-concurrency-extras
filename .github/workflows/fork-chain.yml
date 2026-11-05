@@ -32,7 +32,7 @@ jobs:
           git clone -q https://github.com/pointfreeco/swift-issue-reporting
           git -C swift-issue-reporting checkout -q b23bb4493c439d3e05152bc167014235ba3d47fc
           git clone -q https://github.com/pointfreeco/swift-dependencies
-          git -C swift-dependencies checkout -q b476cc5761057d8d857de063fe7ac8daecf5c06b
+          git -C swift-dependencies checkout -q 2f83b70
           if [ "${{ matrix.code }}" = new ]; then
             git -C swift-issue-reporting apply "$RUNNER_TEMP/ci-chain/issue-reporting.diff"
             git -C swift-dependencies apply "$RUNNER_TEMP/ci-chain/dependencies.diff"

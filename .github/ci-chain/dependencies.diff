@@ -1,9 +1,11 @@
 diff --git a/Sources/Dependencies/DependencyValues.swift b/Sources/Dependencies/DependencyValues.swift
-index bf6b553..d4c3f26 100644
+index bf6b553..c5c8d97 100644
 --- a/Sources/Dependencies/DependencyValues.swift
 +++ b/Sources/Dependencies/DependencyValues.swift
-@@ -1,4 +1,13 @@
+@@ -1,6 +1,16 @@
 -public import Foundation
+ import IssueReporting
+ 
 +#if canImport(Darwin) || os(WASI)
 +  public import Foundation
 +
@@ -14,10 +16,11 @@ index bf6b553..d4c3f26 100644
 +  // NB: WinSDK also has a `UUID` type.
 +  typealias PreparationID = FoundationEssentials.UUID
 +#endif
- import IssueReporting
- 
++
  #if os(Windows)
-@@ -124,7 +133,7 @@ public struct DependencyValues: Sendable {
+   import WinSDK
+ #elseif canImport(Android)
+@@ -124,7 +134,7 @@ public struct DependencyValues: Sendable {
      @TaskLocal static var currentDependency = CurrentDependency()
      @TaskLocal static var isSetting = false
    #endif
@@ -26,7 +29,7 @@ index bf6b553..d4c3f26 100644
    static var isPreparing: Bool {
      preparationID != nil
    }
-@@ -491,10 +500,10 @@ public final class CachedValues: @unchecked Sendable {
+@@ -491,10 +501,10 @@ public final class CachedValues: @unchecked Sendable {
  
    public struct CachedValue {
      let base: any Sendable
@@ -64,10 +67,10 @@ index 7662227..5401a46 100644
        guard ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
 diff --git a/Sources/Dependencies/Internal/Locking.swift b/Sources/Dependencies/Internal/Locking.swift
 new file mode 100644
-index 0000000..e81a931
+index 0000000..62e2d5e
 --- /dev/null
 +++ b/Sources/Dependencies/Internal/Locking.swift
-@@ -0,0 +1,63 @@
+@@ -0,0 +1,64 @@
 +#if canImport(Darwin) || os(WASI)
 +  public import Foundation
 +
@@ -89,58 +92,62 @@ index 0000000..e81a931
 +  public final class _RecursiveLock: @unchecked Sendable {
 +    #if os(Windows)
 +      private let mutex = UnsafeMutablePointer<CRITICAL_SECTION>.allocate(capacity: 1)
++
++      init() {
++        InitializeCriticalSection(self.mutex)
++      }
++
++      deinit {
++        DeleteCriticalSection(self.mutex)
++        self.mutex.deallocate()
++      }
++
++      public func lock() {
++        EnterCriticalSection(self.mutex)
++      }
++
++      public func unlock() {
++        LeaveCriticalSection(self.mutex)
++      }
 +    #else
 +      private let mutex = UnsafeMutablePointer<pthread_mutex_t>.allocate(capacity: 1)
-+    #endif
 +
-+    init() {
-+      #if os(Windows)
-+        InitializeCriticalSection(self.mutex)
-+      #else
++      init() {
 +        var attributes = pthread_mutexattr_t()
 +        pthread_mutexattr_init(&attributes)
 +        pthread_mutexattr_settype(&attributes, Int32(PTHREAD_MUTEX_RECURSIVE))
 +        pthread_mutex_init(self.mutex, &attributes)
 +        pthread_mutexattr_destroy(&attributes)
-+      #endif
-+    }
++      }
 +
-+    deinit {
-+      #if os(Windows)
-+        DeleteCriticalSection(self.mutex)
-+      #else
++      deinit {
 +        pthread_mutex_destroy(self.mutex)
-+      #endif
-+      self.mutex.deallocate()
-+    }
++        self.mutex.deallocate()
++      }
 +
-+    public func lock() {
-+      #if os(Windows)
-+        EnterCriticalSection(self.mutex)
-+      #else
++      public func lock() {
 +        pthread_mutex_lock(self.mutex)
-+      #endif
-+    }
++      }
 +
-+    public func unlock() {
-+      #if os(Windows)
-+        LeaveCriticalSection(self.mutex)
-+      #else
++      public func unlock() {
 +        pthread_mutex_unlock(self.mutex)
-+      #endif
-+    }
++      }
++    #endif
 +  }
 +#endif
 diff --git a/Sources/Dependencies/Internal/TypeName.swift b/Sources/Dependencies/Internal/TypeName.swift
-index 2a1dc7d..5d60524 100644
+index 2a1dc7d..d4d04f2 100644
 --- a/Sources/Dependencies/Internal/TypeName.swift
 +++ b/Sources/Dependencies/Internal/TypeName.swift
-@@ -1,17 +1,30 @@
+@@ -1,4 +1,6 @@
 -import Foundation
--
++#if canImport(Darwin) || os(WASI)
++  import Foundation
++#endif
+ 
  @usableFromInline
  func typeName(_ type: Any.Type) -> String {
-   var name = _typeName(type, qualified: true)
+@@ -6,12 +8,16 @@ func typeName(_ type: Any.Type) -> String {
    if let index = name.firstIndex(of: ".") {
      name.removeSubrange(...index)
    }
@@ -151,43 +158,34 @@ index 2a1dc7d..5d60524 100644
 -      with: "",
 -      options: .regularExpression
 -    )
--  return sanitizedName
-+  return name.removingUnknownContexts()
-+}
-+
-+extension String {
-+  /// Removes every `(unknown context at $<hex>).` from a type name.
-+  fileprivate func removingUnknownContexts() -> String {
-+    let prefix = "(unknown context at $"
-+    var result = ""
-+    var rest = self[...]
-+    while !rest.isEmpty {
-+      if rest.hasPrefix(prefix) {
-+        let afterPrefix = rest.dropFirst(prefix.count)
-+        let hex = afterPrefix.prefix(while: \.isHexDigit)
-+        let afterHex = afterPrefix[hex.endIndex...]
-+        if !hex.isEmpty, afterHex.hasPrefix(").") {
-+          rest = afterHex.dropFirst(2)
-+          continue
-+        }
-+      }
-+      result.append(rest.removeFirst())
-+    }
-+    return result
-+  }
++  #if canImport(Darwin) || os(WASI)
++    let sanitizedName =
++      name
++      .replacingOccurrences(
++        of: #"\(unknown context at \$[[:xdigit:]]+\)\."#,
++        with: "",
++        options: .regularExpression
++      )
++  #else
++    let sanitizedName = name.replacing(#/\(unknown context at \$[[:xdigit:]]+\)\./#, with: "")
++  #endif
+   return sanitizedName
  }
 diff --git a/Sources/Dependencies/WithDependencies.swift b/Sources/Dependencies/WithDependencies.swift
-index 2787951..131e907 100644
+index 2787951..64a096c 100644
 --- a/Sources/Dependencies/WithDependencies.swift
 +++ b/Sources/Dependencies/WithDependencies.swift
-@@ -1,5 +1,9 @@
+@@ -1,7 +1,12 @@
  import ConcurrencyExtras
 -import Foundation
+ import IssueReporting
+ 
 +#if canImport(Darwin) || os(WASI)
 +  import Foundation
 +#else
 +  import FoundationEssentials
 +#endif
- import IssueReporting
- 
++
  /// Prepares global dependencies for the lifetime of your application.
+ ///
+ /// This can be used to set up the initial dependencies for your application in the entry point
